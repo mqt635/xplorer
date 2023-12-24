@@ -10,7 +10,7 @@ mod files_api;
 mod storage;
 mod utils;
 
-use clap::{App, Arg, ArgMatches};
+use clap::{Arg, ArgMatches, Command as ClapCommand};
 
 mod tests;
 
@@ -26,13 +26,13 @@ use tauri::Manager;
 use window_shadows::set_shadow;
 #[cfg(not(target_os = "linux"))]
 use window_vibrancy::{
-    apply_acrylic, apply_blur, apply_mica, clear_acrylic, clear_blur, clear_mica,
+    apply_acrylic, apply_blur, clear_acrylic, clear_blur
 };
 
 lazy_static! {
     pub static ref ARGS_STRUCT: ArgMatches = {
         const VERSION: &str = env!("CARGO_PKG_VERSION");
-        App::new("Xplorer")
+        ClapCommand::new("Xplorer")
             .version(VERSION)
             .about("Xplorer, customizable, modern file manager")
             .arg(
@@ -43,22 +43,24 @@ lazy_static! {
                     .takes_value(false),
             )
             .subcommand(
-                App::new("extensions")
+                ClapCommand::new("extensions")
                     .alias("ext")
                     .about("Manage Xplorer extensions")
                     .subcommand(
-                        App::new("theme")
+                        ClapCommand::new("theme")
                             .about("Manage themes")
                             .subcommand(
-                                App::new("build").about("Package app into json file").arg(
-                                    Arg::new("configuration")
-                                        .help("Path to package.json")
-                                        .takes_value(true)
-                                        .multiple_values(false),
-                                ),
+                                ClapCommand::new("build")
+                                    .about("Package app into json file")
+                                    .arg(
+                                        Arg::new("configuration")
+                                            .help("Path to package.json")
+                                            .takes_value(true)
+                                            .multiple_values(false),
+                                    ),
                             )
                             .subcommand(
-                                App::new("install")
+                                ClapCommand::new("install")
                                     .about("Install theme from json file")
                                     .arg(
                                         Arg::new("theme")
@@ -69,7 +71,7 @@ lazy_static! {
                             ),
                     )
                     .subcommand(
-                        App::new("install")
+                        ClapCommand::new("install")
                             .about("Install extension from packaged json file")
                             .arg(
                                 Arg::new("extension")
@@ -79,12 +81,14 @@ lazy_static! {
                             ),
                     )
                     .subcommand(
-                        App::new("uninstall").about("Uninstall extension").arg(
-                            Arg::new("extension")
-                                .help("Extension identifier")
-                                .takes_value(true)
-                                .multiple_values(true),
-                        ),
+                        ClapCommand::new("uninstall")
+                            .about("Uninstall extension")
+                            .arg(
+                                Arg::new("extension")
+                                    .help("Extension identifier")
+                                    .takes_value(true)
+                                    .multiple_values(true),
+                            ),
                     ),
             )
             .arg(
@@ -149,13 +153,23 @@ fn get_available_fonts() -> Result<Vec<String>, String> {
 #[tauri::command]
 #[inline]
 fn change_transparent_effect(effect: String, window: tauri::Window) {
+    use utils::is_win_11;
+
     clear_blur(&window).unwrap();
     clear_acrylic(&window).unwrap();
-    clear_mica(&window).unwrap();
+    if is_win_11(){ 
+        use window_vibrancy::clear_mica;
+        clear_mica(&window).unwrap(); 
+    }
     match effect.as_str() {
-        "blur" => apply_blur(&window).unwrap(),
-        "acrylic" => apply_acrylic(&window).unwrap(),
-        "mica" => apply_mica(&window).unwrap(),
+        "blur" => apply_blur(&window, Some((18, 18, 18, 125))).unwrap(),
+        "acrylic" => apply_acrylic(&window, Some((18, 18, 18, 125))).unwrap(),
+        "mica" => {
+            use window_vibrancy::apply_mica;
+            if is_win_11(){ 
+                apply_mica(&window).unwrap()
+            }
+        },
         _ => (),
     }
 }
@@ -166,7 +180,7 @@ fn change_transparent_effect(effect: String, window: tauri::Window) {
 fn change_transparent_effect(effect: String, window: tauri::Window) {
     if effect.as_str() == "vibrancy" {
         use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
-        apply_vibrancy(&window, NSVisualEffectMaterial::AppearanceBased).unwrap()
+        apply_vibrancy(&window, NSVisualEffectMaterial::HudWindow, None, None).unwrap()
     }
 }
 
@@ -222,6 +236,8 @@ async fn main() {
             files_api::copy,
             files_api::remove_dir,
             files_api::remove_file,
+            files_api::compress_to_zip,
+            files_api::decompress_from_zip,
             drives::get_drives,
             storage::write_data,
             storage::read_data,
@@ -233,20 +249,22 @@ async fn main() {
             enable_shadow_effect,
             change_transparent_effect
         ])
-        .plugin(tauri_plugin_window_state::WindowState::default())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             let window = app.get_window("main").unwrap();
             let appearance = storage::read_data("appearance").unwrap();
-            let transparent_effect = match appearance.status {
-                true => appearance.data["transparentEffect"]
-                    .as_str()
-                    .unwrap_or("none")
-                    .to_string(),
-                false => "none".to_string(),
+            let transparent_effect = if appearance.status {
+                appearance.data["transparentEffect"]
+                .as_str()
+                .unwrap_or("none")
+                .to_string()
+            } else {
+                "none".to_string()
             };
-            let shadow_effect_enabled = match appearance.status {
-                true => appearance.data["shadowEffect"].as_bool().unwrap_or(true),
-                false => true,
+            let shadow_effect_enabled = if appearance.status {
+                appearance.data["shadowEffect"].as_bool().unwrap_or(true)
+            } else {
+                true
             };
             enable_shadow_effect(shadow_effect_enabled, window.clone());
             change_transparent_effect(transparent_effect, window);

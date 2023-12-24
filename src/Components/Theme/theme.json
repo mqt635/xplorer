@@ -57,6 +57,7 @@
 		"settings.numberCtrlMinus.color": "#122430",
 
 		"contextmenu.background": "#1b1e2e",
+		"contextmenu.boxShadow": "1px 1px 1px 1px #7476e7",
 		"contextmenu.Color": "inherit",
 		"contextmenu.contextmenuSubmenu.background": "#1b1e2e",
 		"contextmenu.contextmenuSubmenu.color": "inherit",
@@ -211,6 +212,7 @@
 		"settings.numberCtrlMinus.color": "#122430",
 
 		"contextmenu.background": "#1b1e2e",
+		"contextmenu.boxShadow": "1px 1px 1px 1px #22595f",
 		"contextmenu.Color": "inherit",
 		"contextmenu.contextmenuSubmenu.background": "#1b1e2e",
 		"contextmenu.contextmenuSubmenu.color": "inherit",
@@ -225,8 +227,7 @@
 		"grid.fileGrid.color": "#87c1ce",
 		"grid.--selectedGridBorder": "#1e88e5",
 		"grid.--selectedGridBackground": "#2893a0",
-		"grid.--selectedGridColor": "inherit",
-
+		"grid.--selectedGridColor": "#ffffff",
 		"preview.background": "#39496a",
 		"preview.color": "inherit",
 		"preview.previewExitBtn.background": "#3e537d",
@@ -362,6 +363,7 @@
 		"settings.numberCtrlMinus.color": "#000",
 
 		"contextmenu.background": "#cbccd1",
+		"contextmenu.boxShadow": "1px 1px 1px 1px #aaa",
 		"contextmenu.Color": "inherit",
 		"contextmenu.contextmenuSubmenu.background": "#cbccd1",
 		"contextmenu.contextmenuSubmenu.color": "inherit",
@@ -513,6 +515,7 @@
 		"settings.numberCtrlMinus.color": "#000",
 
 		"contextmenu.background": "#dedee3",
+		"contextmenu.boxShadow": "1px 1px 1px 1px #aaa",
 		"contextmenu.Color": "inherit",
 		"contextmenu.contextmenuSubmenu.background": "#d1d1d8",
 		"contextmenu.contextmenuSubmenu.color": "inherit",

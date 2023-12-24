@@ -9,11 +9,24 @@ import Pin from '../../Files/File Operation/pin';
 import Translate from '../../I18n/i18n';
 import reveal from '../../../Service/reveal';
 import focusingPath from '../../Functions/focusingPath';
-
+import FileAPI from '../../../Service/files';
 const MultipleSelectedMenu = async (_: HTMLElement, _filePath: string): Promise<contextMenuItem[][]> => {
 	const _focusingPath = await focusingPath();
+	const selectedFiles = getSelected();
+	const SELECTED_FILES_ARE_FILES = Array.from(selectedFiles).every((file) => file.dataset.isdir !== 'true');
 	return [
 		[
+			{
+				menu: await Translate('Open'),
+				shortcut: 'Enter',
+				icon: 'open',
+				visible: SELECTED_FILES_ARE_FILES,
+				role: () => {
+					selectedFiles.forEach((file) => {
+						new FileAPI(decodeURI(file.dataset.path)).openFile();
+					});
+				},
+			},
 			{
 				menu: await Translate('Open in New Tab'),
 				role: () => {
@@ -73,6 +86,14 @@ const MultipleSelectedMenu = async (_: HTMLElement, _filePath: string): Promise<
 						paths.push(decodeURI(element.dataset.path));
 					}
 					Trash(paths);
+				},
+			},
+			{
+				menu: await Translate('Compress to Zip'),
+				icon: 'zip',
+				role: () => {
+					const selectedFilesPath = [...selectedFiles].map((file) => decodeURI(file.dataset.path));
+					new FileAPI(selectedFilesPath).zip();
 				},
 			},
 		],

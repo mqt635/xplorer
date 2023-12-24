@@ -16,6 +16,9 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::mpsc::channel;
 use std::time::SystemTime;
+use std::fs::File;
+use std::io::prelude::*;
+use zip::write::FileOptions;
 use tauri::api::dialog::ask;
 #[cfg(target_os = "windows")]
 use tauri::api::path::local_data_dir;
@@ -183,28 +186,54 @@ pub async fn get_file_properties(file_path: &str) -> Result<FileMetaData, String
     };
 
     let is_symlink = FileSystemUtils::check_is_symlink(file_path);
-    let is_hidden = match is_symlink {
-        true => false,
-        false => FileSystemUtils::check_is_hidden(file_path),
+    let is_hidden = if is_symlink {
+        false
+    } else {
+        FileSystemUtils::check_is_hidden(file_path)
     };
-    let is_system = match is_symlink {
-        true => false,
-        false => FileSystemUtils::check_is_system_file(file_path),
+    let is_system = if is_symlink {
+        false
+    } else {
+        FileSystemUtils::check_is_system_file(file_path)
     };
 
     let is_dir = metadata.is_dir();
     let basename = FileSystemUtils::get_basename(file_path);
-    let file_type = match is_symlink {
-        true => "System link".to_string(),
-        false => file_lib::get_type(&basename, is_dir).await,
+    let file_type = if is_symlink {
+        "System link".to_string()
+    } else {
+        file_lib::get_type(&basename, is_dir).await
     };
 
+    let size = if is_dir {
+        let preference = match storage::read_data("preference") {
+            Ok(result) => result,
+            Err(_) => return Err("Error reading preference".into()),
+        };
+        let preference = if preference.status || preference.data == serde_json::Value::Null {
+            preference.data
+        } else {
+            return Err("Error reading preference".into());
+        };
+        let calculate_sub_folder_size = match preference {
+            serde_json::Value::Null => false,
+            _ => preference["calculateSubFolderSize"].as_bool().unwrap_or(false),
+        };
+        if calculate_sub_folder_size {
+            calculate_files_total_size(vec![file_path.to_string()]).await
+        }
+        else{
+            0
+        }
+    } else {
+        metadata.len()
+    };
     Ok(FileMetaData {
         is_system,
         is_hidden,
-        is_dir: metadata.is_dir(),
+        is_dir: is_dir,
         is_file: metadata.is_file(),
-        size: metadata.len(),
+        size,
         readonly: metadata.permissions().readonly(),
         last_modified,
         last_accessed,
@@ -300,9 +329,10 @@ pub async fn remove_file(path: String) -> bool {
 #[tauri::command]
 #[inline]
 pub fn is_dir(path: &Path) -> Result<bool, String> {
-    match Path::new(path).exists() {
-        true => Ok(fs::metadata(path).unwrap().is_dir()),
-        false => Ok(false),
+    if Path::new(path).exists() {
+        Ok(fs::metadata(path).unwrap().is_dir())
+    } else {
+        Ok(false)
     }
 }
 
@@ -464,6 +494,7 @@ pub fn open_in_terminal(folder_path: &str) {
             )
             .as_str(),
         ])
+        .creation_flags(0x08000000)
         .output()
         .expect("failed to execute process");
 
@@ -495,6 +526,7 @@ pub fn open_in_vscode(path: String) {
     #[cfg(target_os = "windows")]
     Command::new("cmd")
         .args(["/C", format!("code {path}", path = path).as_str()])
+        .creation_flags(0x08000000)
         .output()
         .expect("failed to execute process");
 
@@ -638,25 +670,22 @@ pub fn restore_files(paths: Vec<String>, force: bool) -> Result<ReturnInformatio
             {
                 let target = Path::new(&x.original_parent).join(&x.name);
                 if target.exists() {
-                    match force {
-                        true => {
-                            let metadata = fs::metadata(target.clone()).unwrap();
-                            if metadata.is_dir() {
-                                fs::remove_dir_all(target).unwrap()
-                            } else {
-                                fs::remove_file(target).unwrap()
-                            };
+                    if force {
+                        let metadata = fs::metadata(target.clone()).unwrap();
+                        if metadata.is_dir() {
+                            fs::remove_dir_all(target).unwrap()
+                        } else {
+                            fs::remove_file(target).unwrap()
+                        };
 
-                            true
-                        }
-                        false => {
-                            status = false;
-                            message =
-                                "Target directory with the same name already exist.".to_string();
-                            request_confirmation = true;
+                        true
+                    } else {
+                        status = false;
+                        message =
+                            "Target directory with the same name already exist.".to_string();
+                        request_confirmation = true;
 
-                            false
-                        }
+                        false
                     }
                 } else {
                     fs::create_dir_all(x.original_parent.clone()).is_ok()
@@ -754,21 +783,20 @@ pub async fn extract_icon(file_path: &str) -> Result<String, String> {
     let basename = FileSystemUtils::get_basename(file_path);
     let icon_path = storage_dir.join(basename + ".png");
 
-    match icon_path.exists() {
-        true => Ok(icon_path.to_str().unwrap().to_string()),
-        false => {
-            Command::new("powershell")
-                .args(&[
-                    "./src/extractIcon.ps1",
-                    file_path,
-                    icon_path.to_str().unwrap(),
-                ])
-                .creation_flags(0x08000000)
-                .output()
-                .expect("Failed to extract icon");
+    if icon_path.exists() {
+        Ok(icon_path.to_str().unwrap().to_string())
+    } else {
+        Command::new("powershell")
+            .args(&[
+                "./src/extractIcon.ps1",
+                file_path,
+                icon_path.to_str().unwrap(),
+            ])
+            .creation_flags(0x08000000)
+            .output()
+            .expect("Failed to extract icon");
 
-            Ok(icon_path.to_str().unwrap().to_string())
-        }
+        Ok(icon_path.to_str().unwrap().to_string())
     }
 }
 
@@ -806,9 +834,10 @@ pub async fn search_in_dir(
     window: tauri::Window,
 ) -> Vec<FileMetaData> {
     let glob_pattern = match dir_path.as_ref() {
-        "xplorer://Home" => match cfg!(target_os = "windows") {
-            true => "C://**/".to_string() + &pattern,
-            false => "~/**/".to_string() + &pattern,
+        "xplorer://Home" => if cfg!(target_os = "windows") {
+            "C://**/".to_string() + &pattern
+        } else {
+            "~/**/".to_string() + &pattern
         },
         _ => format!("{dir_path}/**/{pattern}"),
     };
@@ -843,4 +872,67 @@ pub async fn search_in_dir(
     window.unlisten(id);
 
     files
+}
+
+#[tauri::command]
+pub async fn compress_to_zip(files: Vec<String>){
+    let target_name = files[0].to_string() + ".zip";
+    let mut zip = zip::ZipWriter::new(File::create(target_name).unwrap());
+    zip.set_comment("Compressed by Xplorer");
+    let options = FileOptions::default()
+        .compression_method(zip::CompressionMethod::Stored)
+        .unix_permissions(0o755);
+    for(_i, file) in files.iter().enumerate() {
+        let file_name = file.to_string();
+        let file_is_dir = is_dir(std::path::Path::new(&file_name.clone())).unwrap();
+        if file_is_dir{
+            fn add_dir_to_zip(zip: &mut zip::ZipWriter<File>, dir_path: &str, options: &FileOptions, relative_path: &str){
+                zip.add_directory(relative_path.to_owned() , *options).unwrap();
+                let paths = fs::read_dir(dir_path).unwrap();
+                for path in paths {
+                    let path = path.unwrap().path();
+                    let file_name = path.to_str().unwrap();
+                    let file_is_dir = is_dir(std::path::Path::new(&path)).unwrap();
+                    let mut relative_file_path = relative_path.to_owned();
+                    if relative_file_path == "" {
+                        relative_file_path += &FileSystemUtils::get_basename(file_name);
+                    }else{
+                        relative_file_path += &("/".to_owned() + &FileSystemUtils::get_basename(file_name));
+                    }
+                     
+                    if file_is_dir{
+                        add_dir_to_zip(zip, file_name, options, &(relative_file_path));
+                    } else {
+                        zip.start_file(relative_file_path, *options).unwrap();
+                        zip.write_all(fs::read(file_name).unwrap().as_ref()).unwrap();
+                    }
+                }
+            }
+            add_dir_to_zip(&mut zip, &file_name, &options, "");
+        }else{
+            zip.start_file(FileSystemUtils::get_basename(file_name.clone().as_str()), options).unwrap();
+            zip.write_all(&std::fs::read(file_name).unwrap()).unwrap(); 
+        }
+    }
+    zip.finish().unwrap();
+}
+
+#[tauri::command]
+pub async fn decompress_from_zip(zip_path: String, target_dir: String){
+    let mut zip = zip::ZipArchive::new(File::open(zip_path).unwrap()).unwrap();
+    fs::create_dir_all(target_dir.clone()).unwrap();
+    for i in 0..zip.len() {
+        let mut file = zip.by_index(i).unwrap();
+        let file_outpath = match file.enclosed_name(){
+            Some(name) => target_dir.clone() + "/" + &name.to_str().unwrap(),
+            None => continue,
+        };
+        let file_name = file.name();
+        if file_name.ends_with('/') {
+            fs::create_dir_all(&file_outpath).unwrap();
+        }else{
+            let mut outfile  = File::create(file_outpath).unwrap();
+            std::io::copy(&mut file, &mut outfile).unwrap();
+        }
+    }
 }

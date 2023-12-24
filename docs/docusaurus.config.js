@@ -16,13 +16,17 @@ module.exports = {
 	trailingSlash: true,
 	i18n: {
 		defaultLocale: 'en',
-		locales: ['en', 'es', 'fr'],
+		locales: ['en', 'es', 'fr', 'ru', 'it'],
 	},
 	customFields: {
 		supabaseKey: process.env.SUPABASE_KEY,
 	},
 	themeConfig: {
-		hideableSidebar: true,
+		docs: {
+			sidebar: {
+				hideable: true,
+			},
+		},
 		announcementBar: {
 			id: 'support_us',
 			content: 'Xplorer is still under heavy development, any features might change anytime.',
@@ -30,7 +34,8 @@ module.exports = {
 			textColor: '#091E42',
 		},
 		algolia: {
-			apiKey: '801dd9730a1ed22103221e93b49ed9ac',
+			apiKey: '7b47ab88fb7a86f25272ffabd5fec388',
+			appId: '1XKUAWSUJE',
 			indexName: 'xplorer',
 		},
 		navbar: {
